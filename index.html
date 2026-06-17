@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Code Mentor Agent</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: sans-serif; background: #f5f5f5; min-height: 100vh; padding: 40px 20px; }
+    .container { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 28px; margin-bottom: 8px; }
+    p.sub { color: #666; margin-bottom: 24px; }
+    .card { background: white; border-radius: 12px; padding: 24px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+    select { padding: 8px 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 14px; margin-bottom: 12px; }
+    textarea { width: 100%; height: 180px; font-family: monospace; font-size: 14px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; resize: vertical; }
+    button { margin-top: 12px; width: 100%; padding: 12px; background: #4f46e5; color: white; border: none; border-radius: 8px; font-size: 16px; cursor: pointer; }
+    button:hover { background: #4338ca; }
+    button:disabled { background: #a5b4fc; cursor: not-allowed; }
+    .result { background: #f8f8f8; border-radius: 8px; padding: 16px; white-space: pre-wrap; font-size: 14px; line-height: 1.7; min-height: 60px; color: #333; }
+    .result.error { background: #fef2f2; color: #dc2626; }
+    .history-item { border-left: 3px solid #4f46e5; padding-left: 12px; margin-bottom: 12px; font-size: 13px; color: #555; }
+    .badge { display: inline-block; background: #ede9fe; color: #4f46e5; font-size: 11px; padding: 2px 8px; border-radius: 20px; margin-bottom: 6px; }
+    .load-btn { background: #f0f0f0 !important; color: #333 !important; width: auto !important; padding: 8px 16px !important; margin-bottom: 12px; }
+    .load-btn:hover { background: #e0e0e0 !important; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🧑‍💻 Code Mentor Agent</h1>
+    <p class="sub">Paste your code and get instant feedback, explanations and exercises!</p>
+
+    <div class="card">
+      <select id="language">
+        <option value="javascript">JavaScript</option>
+        <option value="python">Python</option>
+        <option value="html">HTML</option>
+        <option value="css">CSS</option>
+        <option value="java">Java</option>
+        <option value="c++">C++</option>
+      </select>
+      <textarea id="code" placeholder="Paste your code here..."></textarea>
+      <button id="btn" onclick="reviewCode()">🔍 Review My Code</button>
+    </div>
+
+    <div class="card">
+      <div class="result" id="result">Your feedback will appear here...</div>
+    </div>
+
+    <div class="card" id="history-card" style="display:none">
+      <h3 style="margin-bottom:12px; font-size:15px;">📚 Session History</h3>
+      <div id="session-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 style="margin-bottom:16px; font-size:16px;">📚 Past Reviews</h3>
+      <button class="load-btn" onclick="loadHistory()">🔄 Load History</button>
+      <div id="history-list"></div>
+    </div>
+  </div>
+
+  <script>
+    let history = [];
+    let reviewCount = 0;
+
+    async function reviewCode() {
+      const code = document.getElementById("code").value.trim();
+      const language = document.getElementById("language").value;
+      const result = document.getElementById("result");
+      const btn = document.getElementById("btn");
+
+      if (!code) {
+        result.className = "result error";
+        result.textContent = "Please paste some code first!";
+        return;
+      }
+
+      result.className = "result";
+      result.textContent = "⏳ Reviewing your code... (may take 15-30 seconds)";
+      btn.disabled = true;
+      btn.textContent = "Reviewing...";
+
+      try {
+        const res = await fetch("/api/review", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ code, language, history })
+        });
+
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+
+        history.push({ role: "user", content: code });
+        history.push({ role: "assistant", content: data.reply });
+        reviewCount++;
+
+        result.textContent = data.reply;
+        addToSession(language, code, reviewCount);
+
+      } catch (err) {
+        result.className = "result error";
+        result.textContent = "❌ Error: " + err.message;
+      }
+
+      btn.disabled = false;
+      btn.textContent = "🔍 Review My Code";
+    }
+
+    function addToSession(lang, code, num) {
+      const card = document.getElementById("history-card");
+      const list = document.getElementById("session-list");
+      card.style.display = "block";
+      const item = document.createElement("div");
+      item.className = "history-item";
+      item.innerHTML = `<span class="badge">${lang}</span><br>Review #${num}: ${code.substring(0, 60)}...`;
+      list.prepend(item);
+    }
+
+    let allReviews = [];
+
+    async function loadHistory() {
+      const list = document.getElementById("history-list");
+      list.innerHTML = "<p style='color:#888; font-size:13px;'>Loading...</p>";
+
+      try {
+        const res = await fetch("/api/history");
+        const data = await res.json();
+
+        if (!data.reviews || !data.reviews.length) {
+          list.innerHTML = "<p style='color:#888; font-size:13px;'>No reviews saved yet!</p>";
+          return;
+        }
+
+        allReviews = data.reviews;
+
+        list.innerHTML = data.reviews.map((r, i) => `
+          <div 
+            onclick="toggleHistory(${i})"
+            style="border-left:3px solid #4f46e5; padding:12px 14px; margin-bottom:10px; background:#f9f9f9; border-radius:0 8px 8px 0; cursor:pointer; transition: background 0.2s;"
+            onmouseover="this.style.background='#f0effe'"
+            onmouseout="this.style.background='#f9f9f9'"
+            id="history-item-${i}"
+          >
+            <div style="display:flex; justify-content:space-between; align-items:center;">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <span style="background:#ede9fe; color:#4f46e5; font-size:11px; font-weight:700; padding:2px 8px; border-radius:20px; text-transform:uppercase;">${r.language}</span>
+                <span style="font-size:11px; color:#888;">${new Date(r.timestamp.seconds * 1000).toLocaleString()}</span>
+              </div>
+              <span style="font-size:12px; color:#4f46e5;" id="arrow-${i}">▼ expand</span>
+            </div>
+
+           <code style="font-size:12px; color:#555; display:block; margin-top:8px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%;">${r.code.substring(0, 80)}${r.code.length > 80 ? '...' : ''}</code>
+
+            <div id="history-detail-${i}" style="display:none; margin-top:12px; border-top:1px solid #e5e7eb; padding-top:12px;">
+
+              <div style="margin-bottom:8px;">
+                <p style="font-size:11px; font-weight:700; color:#888; text-transform:uppercase; margin-bottom:4px;">Full code</p>
+                <pre style="background:#1e1e1e; color:#d4d4d4; padding:12px; border-radius:8px; font-size:12px; overflow:auto; white-space:pre-wrap; height:160px; max-height:160px;">${r.code}</pre>
+              </div>
+
+              <div style="background:#f0fdf4; border-left:3px solid #22c55e; border-radius:0 8px 8px 0; padding:12px 14px; margin-bottom:8px;">
+                <p style="font-size:11px; font-weight:700; color:#166534; text-transform:uppercase; margin-bottom:4px;">📖 What it does</p>
+                <p style="font-size:13px; line-height:1.6; color:#333;">${extractSection(r.feedback, 'what') || r.feedback.substring(0, 200)}</p>
+              </div>
+
+              <div style="background:#fffbeb; border-left:3px solid #f59e0b; border-radius:0 8px 8px 0; padding:12px 14px; margin-bottom:8px;">
+                <p style="font-size:11px; font-weight:700; color:#92400e; text-transform:uppercase; margin-bottom:4px;">💡 Improvement</p>
+                <p style="font-size:13px; line-height:1.6; color:#333;">${extractSection(r.feedback, 'improve') || '—'}</p>
+              </div>
+
+              <div style="background:#eff6ff; border-left:3px solid #3b82f6; border-radius:0 8px 8px 0; padding:12px 14px;">
+                <p style="font-size:11px; font-weight:700; color:#1e40af; text-transform:uppercase; margin-bottom:4px;">🎯 Practice exercise</p>
+                <p style="font-size:13px; line-height:1.6; color:#333;">${extractSection(r.feedback, 'exercise') || '—'}</p>
+              </div>
+
+            </div>
+          </div>
+        `).join("");
+
+      } catch (err) {
+        list.innerHTML = `<p style='color:#dc2626; font-size:13px;'>❌ ${err.message}</p>`;
+      }
+    }
+
+    function toggleHistory(i) {
+      const detail = document.getElementById(`history-detail-${i}`);
+      const arrow = document.getElementById(`arrow-${i}`);
+      const isOpen = detail.style.display === "block";
+      detail.style.display = isOpen ? "none" : "block";
+      arrow.textContent = isOpen ? "▼ expand" : "▲ collapse";
+    }
+
+    function extractSection(text, type) {
+      if (type === 'what') {
+        const m = text.match(/\*\*What.*?:\*\*\s*([\s\S]*?)(?=\*\*|$)/i);
+        return m ? m[1].trim() : '';
+      }
+      if (type === 'improve') {
+        const m = text.match(/\*\*Improvement.*?:\*\*\s*([\s\S]*?)(?=\*\*|$)/i);
+        return m ? m[1].trim() : '';
+      }
+      if (type === 'exercise') {
+        const m = text.match(/\*\*Practice.*?:\*\*\s*([\s\S]*?)(?=\*\*|$)/i);
+        return m ? m[1].trim() : '';
+      }
+      return '';
+    }
+  </script>
+</body>
+</html>
